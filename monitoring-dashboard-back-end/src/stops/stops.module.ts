@@ -6,6 +6,8 @@ import { StopsController } from './stops.controller';
 import { StopsService } from './stops.service';
 
 @Module({
+    // DataSource is provided globally by TypeOrmModule.forRootAsync() in AppModule
+    // — no need to import it here, NestJS DI resolves it automatically
     imports: [TypeOrmModule.forFeature([StopEntity, Cause])],
     controllers: [StopsController],
     providers: [StopsService],
