@@ -18,10 +18,7 @@ export class CausesController {
         return this.causesService.findAll(query);
     }
 
-    @Get(':id')
-    findOne(@Param('id', ParseIntPipe) id: number) {
-        return this.causesService.findOne(id);
-    }
+
 
     @Patch(':id')
     update(@Param('id', ParseIntPipe) id: number, @Body() updateCauseDto: UpdateCauseDto) {
