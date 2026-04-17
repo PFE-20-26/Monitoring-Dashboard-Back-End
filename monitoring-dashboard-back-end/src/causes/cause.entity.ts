@@ -1,11 +1,10 @@
 import { Column, Entity, PrimaryGeneratedColumn, ValueTransformer } from 'typeorm';
 
-// MySQL stores BOOLEAN as TINYINT(1). This transformer guarantees
-// we always expose boolean values in the app layer.
+
 const tinyintBoolean: ValueTransformer = {
     to: (value: boolean) => (value ? 1 : 0),
     from: (value: any) => value === 1 || value === true || value === '1',
-};
+};// bch ytransferi les boolean 
 
 @Entity('causes')
 export class Cause {

@@ -41,8 +41,7 @@ export class CausesService {
             qb.andWhere('(c.name LIKE :s OR c.description LIKE :s)', { s });
         }
 
-        qb.orderBy('c.name', 'ASC')
-            .addOrderBy('c.id', 'ASC');
+        qb.orderBy('c.id', 'ASC');
 
         const [items, total] = await qb.getManyAndCount();
 
