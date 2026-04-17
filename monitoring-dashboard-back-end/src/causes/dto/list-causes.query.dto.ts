@@ -24,16 +24,4 @@ export class ListCausesQueryDto {
     @IsBoolean()
     affectTRS?: boolean;
 
-    @IsOptional()
-    @Type(() => Number)
-    @IsInt()
-    @Min(1)
-    page?: number = 1;
-
-    @IsOptional()
-    @Type(() => Number)
-    @IsInt()
-    @Min(1)
-    @Max(1000)
-    limit?: number = 1000;
 }

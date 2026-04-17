@@ -25,8 +25,6 @@ export class CausesService {
     }
 
     async findAll(query: ListCausesQueryDto) {
-        const page = Number(query.page) || 1;
-        const limit = Number(query.limit) || 1000;
 
         const qb = this.repo.createQueryBuilder('c');
 
@@ -44,13 +42,11 @@ export class CausesService {
         }
 
         qb.orderBy('c.name', 'ASC')
-            .addOrderBy('c.id', 'ASC')
-            .take(limit)
-            .skip((page - 1) * limit);
+            .addOrderBy('c.id', 'ASC');
 
         const [items, total] = await qb.getManyAndCount();
 
-        return { items, total, page, limit };
+        return { items, total };
     }
 
     async findOne(id: number): Promise<Cause> {
