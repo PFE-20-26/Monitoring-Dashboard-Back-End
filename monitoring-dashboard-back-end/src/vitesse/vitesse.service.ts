@@ -2,7 +2,6 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CreateVitesseDto } from './dto/create-vitesse.dto';
-import { ListVitesseQueryDto } from './dto/list-vitesse.query.dto';
 import { VitesseRangeQueryDto } from './dto/vitesse-range.query.dto';
 import { VitesseEntry } from './vitesse.entity';
 
@@ -44,23 +43,6 @@ export class VitesseService {
         });
 
         return this.repo.save(entry);
-    }
-
-    async list(query: ListVitesseQueryDto) {
-        const page = query.page ?? 1;
-        const limit = query.limit ?? 50;
-
-        const qb = this.repo
-            .createQueryBuilder('v')
-            .orderBy('v.recordedAt', 'DESC')
-            .addOrderBy('v.id', 'DESC')
-            .limit(limit)
-            .offset((page - 1) * limit);
-
-        this.applyRange(qb, query);
-
-        const [items, total] = await qb.getManyAndCount();
-        return { items, total, page, limit };
     }
 
     async getDailySeries(query: VitesseRangeQueryDto) {
