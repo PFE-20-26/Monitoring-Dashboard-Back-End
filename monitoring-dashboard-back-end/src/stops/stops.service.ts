@@ -5,7 +5,6 @@ import { Cause } from '../causes/cause.entity';
 import { StopEntity } from './stop.entity';
 import { CreateStopDto } from './dto/create-stop.dto';
 import { ListStopsQueryDto } from './dto/list-stops.query.dto';
-import { UpdateStopDto } from './dto/update-stop.dto';
 
 const MICRO_STOP_SECONDS = 30;
 const DEFAULT_CAUSE_ID = 1;
@@ -78,7 +77,7 @@ export class StopsService {
 
     async findAll(query: ListStopsQueryDto) {
         const page = Number(query.page) || 1;
-        const limit = Math.min(Number(query.limit) || 5, 100);
+        const limit = Number(query.limit) || 5;
         const from = query.from?.trim();
         const to = query.to?.trim();
         const equipe = query.equipe;
@@ -128,10 +127,6 @@ export class StopsService {
             LIMIT ? OFFSET ?
         `, [...params, limit, offset]);
 
-        const pageDuration = (rows as any[]).reduce(
-            (sum, r) => sum + (Number(r.durationSeconds) || 0), 0,
-        );
-
         const items = (rows as any[]).map((r) => ({
             id: String(r.id),
             day: String(r.day),
@@ -142,61 +137,11 @@ export class StopsService {
             causeId: Number(r.causeId),
             causeName: r.causeName || 'Unnamed',
             'impact trs': (r.affectTRS === 1 || r.affectTRS === true || r.affectTRS === '1') ? 1 : 0,
-            '%':
-                pageDuration > 0 && r.durationSeconds !== null
-                    ? Math.round((Number(r.durationSeconds) / pageDuration) * 10000) / 100
-                    : null,
         }));
 
         return { items, total, page, limit };
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // FIND ONE
-    // ─────────────────────────────────────────────────────────────────────
-    async findOne(id: string) {
-        const stop = await this.stopRepo
-            .createQueryBuilder('s')
-            .leftJoinAndSelect('s.cause', 'c')
-            .where('s.id = :id', { id })
-            .getOne();
-
-        if (!stop) throw new NotFoundException(`Stop id=${id} not found`);
-        return stop;
-    }
-
-    // ─────────────────────────────────────────────────────────────────────
-    // UPDATE
-    // ─────────────────────────────────────────────────────────────────────
-    async update(id: string, dto: UpdateStopDto) {
-        const stop = await this.stopRepo.findOne({ where: { id } });
-        if (!stop) throw new NotFoundException(`Stop id=${id} not found`);
-
-        if (dto.day !== undefined) stop.day = dto.day;
-        if (dto.startTime !== undefined) stop.startTime = dto.startTime;
-        if (dto.stopTime !== undefined) stop.stopTime = dto.stopTime ?? null;
-
-        const durationSec =
-            stop.stopTime !== null ? diffTimeSeconds(stop.startTime, stop.stopTime) : null;
-        const isMicro = durationSec !== null && durationSec < MICRO_STOP_SECONDS;
-
-        if (isMicro) {
-            stop.causeId = NON_CONSIDERED_CAUSE_ID;
-            await this.assertCauseExists(stop.causeId);
-        } else {
-            if (dto.causeId !== undefined) {
-                const cid = dto.causeId || DEFAULT_CAUSE_ID;
-                await this.assertCauseExists(cid);
-                stop.causeId = cid;
-            }
-            if (!stop.causeId || stop.causeId <= 0) {
-                stop.causeId = DEFAULT_CAUSE_ID;
-                await this.assertCauseExists(stop.causeId);
-            }
-        }
-
-        return this.stopRepo.save(stop);
-    }
 
     // ─────────────────────────────────────────────────────────────────────
     // DOWNTIME ANALYTICS  — raw SQL, single query, all causes shown
