@@ -1,6 +1,8 @@
 import { IsInt, IsOptional, IsString, Max, Min, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 
+const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+
 export class ListStopsQueryDto {
     @IsOptional()
     @Type(() => Number)
@@ -30,11 +32,11 @@ export class ListStopsQueryDto {
 
     @IsOptional()
     @IsString()
-    @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from must be YYYY-MM-DD' })
+    @Matches(DATE_REGEX, { message: 'from must be YYYY-MM-DD' })
     from?: string;
 
     @IsOptional()
     @IsString()
-    @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to must be YYYY-MM-DD' })
+    @Matches(DATE_REGEX, { message: 'to must be YYYY-MM-DD' })
     to?: string;
 }
