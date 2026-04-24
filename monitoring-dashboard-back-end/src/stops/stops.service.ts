@@ -89,43 +89,60 @@ export class StopsService {
 
         const whereParts: string[] = [];
         const params: any[] = [];
+        
+        // Formule pour le "Jour de Production" (commence à 06:00)
+        const prodDayExpr = "IF(s.Debut < '06:00:00', DATE_SUB(s.Jour, INTERVAL 1 DAY), s.Jour)";
 
         if (causeId !== undefined) { whereParts.push('s.cause_id = ?'); params.push(causeId); }
         if (equipe !== undefined) { whereParts.push('s.equipe   = ?'); params.push(equipe); }
-        if (from) { whereParts.push('s.Jour    >= ?'); params.push(from); }
-        if (to) { whereParts.push('s.Jour    <= ?'); params.push(to); }
+        if (from) { whereParts.push(`${prodDayExpr} >= ?`); params.push(from); }
+        if (to) { whereParts.push(`${prodDayExpr} <= ?`); params.push(to); }
 
         const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
         const offset = (page - 1) * limit;
 
-        // Count total matching rows first (separate query — connection-safe)
-        const countResult = await this.dataSource.query(`
-            SELECT COUNT(*) AS total
-            FROM stops s
-            INNER JOIN causes c ON c.id = s.cause_id
-            ${whereClause}
-        `, [...params]);
-
-        const total = Number((countResult as any[])[0]?.total ?? 0);
-
-        // Then fetch the paginated rows
+        // Single query: COUNT(*) OVER() gives the total for pagination,
+        // SUM(s.Duree) OVER() gives the shift total for the % calculation.
+        // Both window functions run in one pass — no extra round-trip.
         const rows = await this.dataSource.query(`
             SELECT
-                s.id,
-                CAST(s.Jour AS CHAR) AS day,
-                s.Debut              AS startTime,
-                s.Fin                AS stopTime,
-                s.Duree              AS durationSeconds,
-                s.equipe,
-                s.cause_id           AS causeId,
-                c.name               AS causeName,
-                c.affect_trs         AS affectTRS
-            FROM stops s
-            INNER JOIN causes c ON c.id = s.cause_id
-            ${whereClause}
-            ORDER BY s.Jour DESC, s.Debut DESC, s.id DESC
+                sub.id,
+                sub.day,
+                sub.startTime,
+                sub.stopTime,
+                sub.durationSeconds,
+                sub.equipe,
+                sub.causeId,
+                sub.causeName,
+                sub.affectTRS,
+                sub.pct,
+                sub.total
+            FROM (
+                SELECT
+                    s.id,
+                    CAST(${prodDayExpr} AS CHAR)  AS day,
+                    s.Debut                       AS startTime,
+                    s.Fin                         AS stopTime,
+                    s.Duree                       AS durationSeconds,
+                    s.equipe,
+                    s.cause_id                    AS causeId,
+                    c.name                        AS causeName,
+                    c.affect_trs                  AS affectTRS,
+                    COUNT(*) OVER()               AS total,
+                    CASE
+                        WHEN SUM(s.Duree) OVER() > 0 AND s.Duree IS NOT NULL
+                        THEN ROUND(s.Duree * 100.0 / SUM(s.Duree) OVER(), 2)
+                        ELSE NULL
+                    END AS pct
+                FROM stops s
+                INNER JOIN causes c ON c.id = s.cause_id
+                ${whereClause}
+                ORDER BY day DESC, s.Debut DESC, s.id DESC
+            ) sub
             LIMIT ? OFFSET ?
         `, [...params, limit, offset]);
+
+        const total = rows.length > 0 ? Number((rows as any[])[0].total) : 0;
 
         const items = (rows as any[]).map((r) => ({
             id: String(r.id),
@@ -137,6 +154,7 @@ export class StopsService {
             causeId: Number(r.causeId),
             causeName: r.causeName || 'Unnamed',
             'impact trs': (r.affectTRS === 1 || r.affectTRS === true || r.affectTRS === '1') ? 1 : 0,
+            '%': r.pct !== null ? Number(r.pct) : null,
         }));
 
         return { items, total, page, limit };
@@ -162,10 +180,12 @@ export class StopsService {
         // merges this data with the full list of causes, filling in 0s where needed.
         const whereParts: string[] = [];
         const params: any[] = [];
+        
+        const prodDayExpr = "IF(s.Debut < '06:00:00', DATE_SUB(s.Jour, INTERVAL 1 DAY), s.Jour)";
 
         if (equipe !== undefined) { whereParts.push('s.equipe = ?'); params.push(equipe); }
-        if (from) { whereParts.push('s.Jour  >= ?'); params.push(from); }
-        if (to) { whereParts.push('s.Jour  <= ?'); params.push(to); }
+        if (from) { whereParts.push(`${prodDayExpr} >= ?`); params.push(from); }
+        if (to) { whereParts.push(`${prodDayExpr} <= ?`); params.push(to); }
 
         const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
@@ -220,16 +240,18 @@ export class StopsService {
 
         const whereParts: string[] = [];
         const params: any[] = [];
+        
+        const prodDayExpr = "IF(s.Debut < '06:00:00', DATE_SUB(s.Jour, INTERVAL 1 DAY), s.Jour)";
 
         if (equipe !== undefined) { whereParts.push('s.equipe = ?'); params.push(equipe); }
-        if (from) { whereParts.push('s.Jour  >= ?'); params.push(from); }
-        if (to) { whereParts.push('s.Jour  <= ?'); params.push(to); }
+        if (from) { whereParts.push(`${prodDayExpr} >= ?`); params.push(from); }
+        if (to) { whereParts.push(`${prodDayExpr} <= ?`); params.push(to); }
 
         const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
         const sql = `
             SELECT
-                CAST(s.Jour AS CHAR) AS day,
+                CAST(${prodDayExpr} AS CHAR) AS day,
                 COUNT(*)             AS stopsCount,
                 SUM(
                     CASE
@@ -253,8 +275,8 @@ export class StopsService {
             FROM stops s
             INNER JOIN causes c ON c.id = s.cause_id
             ${whereClause}
-            GROUP BY s.Jour
-            ORDER BY s.Jour DESC
+            GROUP BY day
+            ORDER BY day DESC
         `;
 
         const rows = await this.dataSource.query(sql, params) as any[];
