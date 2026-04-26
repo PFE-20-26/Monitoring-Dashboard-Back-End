@@ -66,6 +66,16 @@ export class StopEntity {
   })
   equipe!: number;
 
+  @Column({
+    name: 'prod_day',
+    type: 'date',
+    insert: false,
+    update: false,
+    asExpression: `(IF(\`Debut\` < '06:00:00', DATE_SUB(\`Jour\`, INTERVAL 1 DAY), \`Jour\`))`,
+    generatedType: 'STORED',
+  })
+  prodDay!: string;
+
   @ManyToOne(() => Cause, { eager: false })
   @JoinColumn({ name: 'cause_id', referencedColumnName: 'id' })
   cause?: Cause;

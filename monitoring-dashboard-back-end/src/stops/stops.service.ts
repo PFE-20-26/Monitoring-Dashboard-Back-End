@@ -90,20 +90,16 @@ export class StopsService {
         const whereParts: string[] = [];
         const params: any[] = [];
         
-        // Formule pour le "Jour de Production" (commence à 06:00)
-        const prodDayExpr = "IF(s.Debut < '06:00:00', DATE_SUB(s.Jour, INTERVAL 1 DAY), s.Jour)";
-
         if (causeId !== undefined) { whereParts.push('s.cause_id = ?'); params.push(causeId); }
         if (equipe !== undefined) { whereParts.push('s.equipe   = ?'); params.push(equipe); }
-        if (from) { whereParts.push(`${prodDayExpr} >= ?`); params.push(from); }
-        if (to) { whereParts.push(`${prodDayExpr} <= ?`); params.push(to); }
+        
+        if (from) { whereParts.push('s.prod_day >= ?'); params.push(from); }
+        if (to) { whereParts.push('s.prod_day <= ?'); params.push(to); }
 
         const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
         const offset = (page - 1) * limit;
 
-        // Single query: COUNT(*) OVER() gives the total for pagination,
-        // SUM(s.Duree) OVER() gives the shift total for the % calculation.
-        // Both window functions run in one pass — no extra round-trip.
+        // Optimized query using the new prod_day column and window functions
         const rows = await this.dataSource.query(`
             SELECT
                 sub.id,
@@ -120,7 +116,7 @@ export class StopsService {
             FROM (
                 SELECT
                     s.id,
-                    CAST(${prodDayExpr} AS CHAR)  AS day,
+                    CAST(s.prod_day AS CHAR)      AS day,
                     s.Debut                       AS startTime,
                     s.Fin                         AS stopTime,
                     s.Duree                       AS durationSeconds,
@@ -134,10 +130,10 @@ export class StopsService {
                         THEN ROUND(s.Duree * 100.0 / SUM(s.Duree) OVER(), 2)
                         ELSE NULL
                     END AS pct
-                FROM stops s
+                FROM stops s FORCE INDEX (idx_prod_day)
                 INNER JOIN causes c ON c.id = s.cause_id
                 ${whereClause}
-                ORDER BY day DESC, s.Debut DESC, s.id DESC
+                ORDER BY s.prod_day DESC, s.Debut DESC, s.id DESC
             ) sub
             LIMIT ? OFFSET ?
         `, [...params, limit, offset]);
@@ -181,11 +177,9 @@ export class StopsService {
         const whereParts: string[] = [];
         const params: any[] = [];
         
-        const prodDayExpr = "IF(s.Debut < '06:00:00', DATE_SUB(s.Jour, INTERVAL 1 DAY), s.Jour)";
-
         if (equipe !== undefined) { whereParts.push('s.equipe = ?'); params.push(equipe); }
-        if (from) { whereParts.push(`${prodDayExpr} >= ?`); params.push(from); }
-        if (to) { whereParts.push(`${prodDayExpr} <= ?`); params.push(to); }
+        if (from) { whereParts.push('s.prod_day >= ?'); params.push(from); }
+        if (to) { whereParts.push('s.prod_day <= ?'); params.push(to); }
 
         const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
@@ -200,7 +194,7 @@ export class StopsService {
                         ELSE IFNULL(s.Duree, 0)
                     END
                 ) AS totalDowntimeSeconds
-            FROM stops s
+            FROM stops s FORCE INDEX (idx_summary_covering)
             INNER JOIN causes c ON c.id = s.cause_id
             ${whereClause}
             GROUP BY c.id, c.name
@@ -241,40 +235,29 @@ export class StopsService {
         const whereParts: string[] = [];
         const params: any[] = [];
         
-        const prodDayExpr = "IF(s.Debut < '06:00:00', DATE_SUB(s.Jour, INTERVAL 1 DAY), s.Jour)";
-
         if (equipe !== undefined) { whereParts.push('s.equipe = ?'); params.push(equipe); }
-        if (from) { whereParts.push(`${prodDayExpr} >= ?`); params.push(from); }
-        if (to) { whereParts.push(`${prodDayExpr} <= ?`); params.push(to); }
+        if (from) { whereParts.push('s.prod_day >= ?'); params.push(from); }
+        if (to) { whereParts.push('s.prod_day <= ?'); params.push(to); }
 
         const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
 
         const sql = `
-            SELECT
-                CAST(${prodDayExpr} AS CHAR) AS day,
-                COUNT(*)             AS stopsCount,
-                SUM(
-                    CASE
-                        WHEN s.Fin IS NULL
-                            THEN TIMESTAMPDIFF(SECOND, TIMESTAMP(s.Jour, s.Debut), NOW())
-                        ELSE IFNULL(s.Duree, 0)
-                    END
-                ) AS totalDowntimeSeconds,
-                SUM(
-                    CASE WHEN c.affect_trs = 1
-                        THEN (
-                            CASE
-                                WHEN s.Fin IS NULL
-                                    THEN TIMESTAMPDIFF(SECOND, TIMESTAMP(s.Jour, s.Debut), NOW())
-                                ELSE IFNULL(s.Duree, 0)
-                            END
-                        )
-                        ELSE 0
-                    END
-                ) AS trsDowntimeSeconds
-            FROM stops s
-            INNER JOIN causes c ON c.id = s.cause_id
-            ${whereClause}
+            SELECT 
+                day,
+                SUM(stopsCount) as stopsCount,
+                SUM(totalSec) as totalDowntimeSeconds,
+                SUM(IF(affect_trs = 1, totalSec, 0)) as trsDowntimeSeconds
+            FROM (
+                SELECT 
+                    CAST(s.prod_day AS CHAR) as day,
+                    s.cause_id,
+                    COUNT(*) as stopsCount,
+                    SUM(IFNULL(s.Duree, 0)) as totalSec
+                FROM stops s FORCE INDEX (idx_summary_covering)
+                ${whereClause}
+                GROUP BY s.prod_day, s.cause_id
+            ) as agg
+            INNER JOIN causes c ON c.id = agg.cause_id
             GROUP BY day
             ORDER BY day DESC
         `;
